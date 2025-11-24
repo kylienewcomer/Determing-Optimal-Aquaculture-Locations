@@ -1,0 +1,178 @@
+---
+title: "EEZsforaquaculture"
+author: "Kylie Newcomer"
+date: 11/26/2025
+format: pdf
+editor: visual
+execute: 
+  warning: false
+  message: false
+---
+
+```{r, output = FALSE}
+library(tidyverse)
+library(sf)
+library(terra)
+library(here)
+library(tmap)
+
+```
+
+## Read in data
+```{r, output = FALSE}
+sst_08 <- rast(here("data", "average_annual_sst_2008.tif"))
+
+sst_09 <- rast(here("data", "average_annual_sst_2009.tif"))
+
+sst_10 <- rast(here("data", "average_annual_sst_2010.tif"))
+
+sst_11 <- rast(here("data", "average_annual_sst_2011.tif"))
+
+sst_12 <- rast(here("data", "average_annual_sst_2012.tif"))
+
+depth <- rast(here("data", "depth.tif"))
+
+eez <- st_read(here("data", "wc_regions_clean.shp"))
+
+```
+
+## Process data
+```{r}
+all_sst <- c(sst_08,
+             sst_09,
+             sst_10,
+             sst_11,
+             sst_12)
+```
+
+```{r}
+layer_names <- c("2008", "2009", "2010", "2011", "2012")
+
+names(all_sst) <- layer_names
+```
+
+```{r}
+names(all_sst)
+```
+
+```{r}
+# Find average across years
+mean_sst <- mean(all_sst) - 273.15 # convert from Kelvin to Celsius
+```
+
+```{r}
+# Assign land values to NA for aesthetic purposes
+depth[depth > 0] <- NA
+```
+
+```{r}
+
+```
+
+
+```{r}
+tm_shape(ocean) +
+  tm_raster()
+
+```
+
+## Find suitable locations
+```{r}
+ocean[[1]]
+```
+
+### Create classification matrices
+```{r}
+rcl_temp <- matrix(c(-Inf, 11, 0,
+         11, 30, 1,
+         30, Inf, 0),
+       ncol = 3)
+
+rcl_depth <- matrix(c(-Inf, -70, 0,
+         -70, 0, 1,
+         0, Inf, 0),
+       ncol = 3)
+
+temp_reclass <- classify(mean_sst, rcl = rcl_temp)
+
+depth_reclass <- classify(depth, rcl = rcl_depth)
+
+if (crs(depth) == crs(mean_sst)){
+  print("Projections match!")
+}else {
+  crs(depth) <- crs(mean_sst)
+  warning("Updating depth CRS")
+}
+
+depth_resample <- resample(depth_reclass, temp_reclass, method = "near")
+
+cropped_depth <- crop(depth_resample, temp_reclass)
+
+
+
+ocean_zones <- temp_reclass * cropped_depth
+
+
+
+
+temp_depth <- c(temp_reclass, cropped_depth)
+
+  mult <- function(mean, depth){
+   mean * depth
+  }
+
+  ocean <- lapp(temp_depth[[c(1,2)]],
+                          fun = mult)
+#species_regions <- 
+  
+  
+suitable_regions <- rasterize(eez, ocean, )
+```
+
+```{r}
+tm_shape(ocean) +
+  tm_raster(col.scale = tm_scale(
+    values = c("lightblue2", "black"),
+    labels = c("Not Suitable", "suitable"),
+    breaks = c(0,1,2))
+    )
+```
+
+```{r}
+st_crs(eez) <- crs(ocean)
+
+eez_bbox <- st_bbox(eez)
+
+ocean_crop <- crop(ocean, eez_bbox)
+
+
+# Extract points from raster for all species occurrences
+ocean_pts <- as_tibble(terra::extract(ocean, eez))
+```
+
+```{r}
+tm_shape(eez) +
+  tm_polygons(color = "none") +
+tm_shape(ocean_crop) +
+  tm_raster(col.scale = tm_scale(
+    values = c("lightblue2", "black"),
+    labels = c("Not Suitable", "Suitable"),
+    breaks = c(0,1,2)))
+```
+
+
+## Create function
+```{r}
+
+aquaculture_zones <- function(species, min_depth, max_depth, min_temp, max_temp){
+
+  mult <- function(mean, depth){
+   mean * depth
+  }
+
+  eez <- lapp(ocean[[c(1,2)]],
+                          fun = mult)
+}
+
+```
+
