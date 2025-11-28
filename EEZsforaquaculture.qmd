@@ -38,7 +38,7 @@ eez <- st_read(here("data", "wc_regions_clean.shp"))
 ```
 
 ## Process data
-#### Combine sst data into single raster
+All temperature rasters from 2008 to 2012 are stacked. The mean of all rasters is taken to determine the average sea surface temperature.
 ```{r}
 all_sst <- c(sst_08,
              sst_09,
@@ -48,7 +48,7 @@ all_sst <- c(sst_08,
 ```
 
 ```{r}
-# Rename layers to coorespond with years
+# Rename layers to correspond with years
 layer_names <- c("2008", "2009", "2010", "2011", "2012")
 
 names(all_sst) <- layer_names
@@ -59,21 +59,14 @@ names(all_sst) <- layer_names
 names(all_sst)
 ```
 
-### Find mean sst of 2008-2012
 ```{r}
 # Find average across years
 mean_sst <- mean(all_sst) - 273.15 # convert from Kelvin to Celsius
 ```
 
-```{r}
-# Assign land values to NA for aesthetic purposes
-depth[depth > 0] <- NA
-```
-
 
 ## Find suitable locations
-
-### Create classification matrices
+In order to determine suitable areas of habitat, reclassification matrices are created to assign 1's to areas within the suitable temperature and depth ranges for Oysters. Areas without suitable 
 ```{r}
 # Reclassify temperature data
 rcl_temp <- matrix(c(-Inf, 11, 0,
@@ -107,7 +100,6 @@ if (crs(depth_reclass) == crs(temp_reclass)){
   crs(depth_reclass) <- crs(temp_reclass)
   warning("Updating depth CRS")
 }
-
 # Match resolutions of rasters
 depth_resample <- resample(depth_reclass, temp_reclass, method = "near")
 
@@ -121,16 +113,9 @@ temp_depth <- c(temp_reclass, cropped_depth)
 
 
 ```{r}
-# Create functino to multiply across layers
-mult <- function(mean, depth){
-   mean * depth
-  }
-
-# Apply function to temp_depth raster
-ocean <- lapp(temp_depth[[c(1,2)]],
-              fun = mult)
-ocean
+ocean <- temp_reclass * cropped_depth
 ```
+
 ```{r}
 ocean[[1]]
 ```
@@ -154,45 +139,76 @@ tm_shape(ocean) +
 
 NEED TO REORDER THIS
 ```{r}
-ocean_mask <- mask(ocean, eez)
-
-eez_raster <- rasterize(eez, ocean_mask,
-                        field = "rgn")
-
-if (crs(eez_raster) == crs(ocean)){
+if (crs(eez) == crs(ocean)){
   print("Projections match!")
 }else {
-  rs(eez_raster) <- crs(ocean)
+  st_crs(eez) <- crs(ocean)
   warning("Updating eez CRS")
 }
 
+ocean_mask <- mask(ocean, eez)
+```
+
+```{r}
+tm_shape(ocean_mask) +
+  tm_raster()
+```
+
+
+```{r}
+eez_raster <- rasterize(eez, ocean_mask,
+                        field = "rgn")
+
+
+
+suitable_area <- expanse(ocean_mask, unit = "km", byValue = TRUE, zones = eez_raster)
+
+clean_suitable_area <- suitable_area %>% 
+  filter(value == 1) %>%
+  select(-layer, -value) %>% 
+  rename(rgn = zone)
+
+
+clean_suitable_area %>% 
+  arrange(desc(area)) %>%
+  kable(col.names = c("Region", "Area of Suitable Habitat")) %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+```
+```{r}
 suitable_regions <- zonal(ocean_mask, eez_raster, fun = "sum", na.rm = TRUE)
 
 suitable_regions %>% 
   kable(col.names = c("Region", "Number of cells with suitable habitat")) %>%
   kable_styling(bootstrap_options = "striped", full_width = FALSE)
 
+suitable_cells <- suitable_regions %>% 
+  mutate(cell_area = cell_area$area,
+         suitable_habitat = mean * cell_area) %>% 
+  select(-cell_area)
+
+
 ```
+
 
 ```{r}
 cell_area <- cellSize(ocean_mask, unit="km")[1]
 ```
 
 ```{r}
-suitable_cells <- suitable_regions %>% 
+suitable_cell_area <- suitable_cells %>% 
   mutate(cell_area = cell_area$area,
-         suitable_habitat = lyr1 * cell_area) %>% 
+         suitable_habitat = mean * cell_area) %>% 
   select(-cell_area)
-```
 
-```{r}
-suitable_cells %>% 
+suitable_cell_area %>% 
+  arrange(desc(mean)) %>% 
   kable(col.names = c("Region", "Number of cells with suitable habitat", "Area of suitable habitat")) %>%
   kable_styling(bootstrap_options = "striped", full_width = FALSE)
 ```
 
 ```{r}
-eez_suitable <- left_join(eez, suitable_cells, by = "rgn") # Do I need to join this way ?
+suitable_habitat <- left_join(eez, clean_suitable_area, by = "rgn")
 
 ```
 
@@ -201,17 +217,17 @@ eez_suitable <- left_join(eez, suitable_cells, by = "rgn") # Do I need to join t
 ## Must customize this plot...
 change colors... look into depth base plot
 ```{r}
-tm_shape(depth) +                                      
+tm_shape(ocean) +                                      
   tm_raster(col.legend = tm_legend(show = FALSE)) +
-tm_shape(eez_suitable) +                       # Plot EEZ polygons
-  tm_polygons(fill = "suitable_habitat", 
-              fill.scale = tm_scale(values =  "viridis",
-                                    breaks = c(0,200,1000,2500,3000, Inf)),
+tm_shape(suitable_habitat) +
+  tm_polygons(fill = "area", 
+              fill.scale = tm_scale(values =  "viridis"),
+                                    #breaks = c(0,200,1000,2500,3000, Inf)),
               fill.legend = tm_legend(title  = "Suitable habitat (sq km)")) + 
   tm_text(text = "rgn",
           col = "white",
           size = 0.35,
-          xmod = 7,
+          xmod = 4,
           ymod = 1,
           bgcol = "black",
           bgcol_alpha = 0.75)+
@@ -220,30 +236,22 @@ tm_title("Suitable Aquaculture Zones for Oysters")
 
 ```
 
-```{r}
-tm_shape(suitable_habitat) +
-   tm_raster(col.legend = tm_legend(
-     position = tm_pos_out("right", "center")
-    ))
-```
-
-
-## Creating function for species...
-TBD SPECIES
+## Create function
 ```{r}
 
 aquaculture_zones <- function(species, min_depth, max_depth, min_temp, max_temp){
   # Temp reclassification
-  rcl_temp <- matrix(c(-Inf, 11, 0,
-         11, 30, 1,
-         30, Inf, 0),
+  rcl_temp <- matrix(c(-Inf, min_temp, 0,
+         min_temp, max_temp, 1,
+         max_temp, Inf, 0),
        ncol = 3, byrow = TRUE)
     
   temp_reclass <- classify(mean_sst, rcl = rcl_temp)
+  
   # Depth reclassification
-  rcl_depth <- matrix(c(-Inf, -70, 0,
-         -70, 0, 1,
-         0, Inf, 0),
+  rcl_depth <- matrix(c(-Inf, min_depth, 0,
+         min_depth, max_depth, 1,
+         max_depth, Inf, 0),
        ncol = 3, byrow = TRUE)
   depth_reclass <- classify(depth, rcl = rcl_depth)
 
@@ -257,52 +265,56 @@ aquaculture_zones <- function(species, min_depth, max_depth, min_temp, max_temp)
   cropped_depth <- crop(depth_resample, temp_reclass)
 
   # Stack temperature and depth rasters
-  temp_depth <- c(temp_reclass, cropped_depth)
+  #temp_depth <- c(temp_reclass, cropped_depth)
   
-  # Create functino to multiply across layers
-  mult <- function(mean, depth){
-    mean * depth
-    }
-
-# Apply function to temp_depth raster
-  ocean <- lapp(temp_depth[[c(1,2)]],
-                fun = mult)
+  ocean <- cropped_depth * temp_reclass
+  
+  st_crs(eez) <- crs(ocean)
+  
   ocean_mask <- mask(ocean, eez)
 
   eez_raster <- rasterize(eez, ocean_mask,
                           field = "rgn")
 
-  crs(eez_raster) <- crs(ocean)
 
 
-  suitable_regions <- zonal(ocean_mask, eez_raster, fun = "sum", na.rm = TRUE)
-  cell_area <- cellSize(ocean_mask, unit="km")[1]
-   suitable_cells <- suitable_regions %>% 
-    mutate(cell_area = cell_area$area,
-          suitable_habitat = lyr1 * cell_area) %>% 
-    select(-cell_area)
+  suitable_area <- expanse(ocean_mask, unit = "km", byValue = TRUE, zones = eez_raster)
+
+  clean_suitable_area <- suitable_area %>% 
+    filter(value == 1) %>%
+    select(-layer, -value) %>% 
+    rename(rgn = zone)
   
   
-  eez_suitable <- left_join(eez, suitable_cells, by = "rgn")
-  tm_shape(depth) +                                      
+  suitable_habitat <- left_join(eez, clean_suitable_area, by = "rgn")
+  
+  tm_shape(ocean) +                                      
     tm_raster(col.legend = tm_legend(show = FALSE)) +
-    tm_shape(eez_suitable) +                       # Plot EEZ polygons
-    tm_polygons(fill = "suitable_habitat", 
-                fill.scale = tm_scale(values =  "viridis",
-                                      breaks = c(0,200,1000,2500,3000, Inf)),
+    tm_shape(suitable_habitat) +
+    tm_polygons(fill = "area", 
+                fill.scale = tm_scale(values =  "viridis"),
+                                    #breaks = c(0,200,1000,2500,3000, Inf)),
                 fill.legend = tm_legend(title  = "Suitable habitat (sq km)")) + 
     tm_text(text = "rgn",
             col = "white",
             size = 0.35,
-            xmod = 7,
+            xmod = 4,
             ymod = 1,
             bgcol = "black",
             bgcol_alpha = 0.75)+
-  tm_grid(alpha = 0.5) +
-  tm_title("Suitable Aquaculture Zones for Oysters")
+    tm_grid(alpha = 0.5) +
+    tm_title(paste("Suitable Aquaculture Zones for ", species))
 
 }
 
-aquaculture_zones(oysters, -70, 0, 11, 35)
+aquaculture_zones(species = "oysters", min_depth = -70, max_depth = 0, min_temp =  11, max_temp = 35)
 ```
 
+
+Using the function to find suitable aquaculture zones for Red Abalone
+
+Depth range 0-24 m
+Temperature range 8-18 C
+```{r}
+aquaculture_zones(species = "Red Abalone", min_depth = -24, max_depth = 0, min_temp =  8, max_temp = 18)
+```
