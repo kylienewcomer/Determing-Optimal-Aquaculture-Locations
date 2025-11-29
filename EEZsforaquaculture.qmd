@@ -38,7 +38,7 @@ eez <- st_read(here("data", "wc_regions_clean.shp"))
 ```
 
 ## Process data
-All temperature rasters from 2008 to 2012 are stacked. The mean of all rasters is taken to determine the average sea surface temperature.
+All temperature rasters from 2008 to 2012 are stacked. The mean of all temperature rasters is taken to determine the average sea surface temperature. The temperature is converted from Kelvins to degrees celsius.
 ```{r}
 all_sst <- c(sst_08,
              sst_09,
@@ -66,7 +66,7 @@ mean_sst <- mean(all_sst) - 273.15 # convert from Kelvin to Celsius
 
 
 ## Find suitable locations
-In order to determine suitable areas of habitat, reclassification matrices are created to assign 1's to areas within the suitable temperature and depth ranges for Oysters. Areas without suitable 
+In order to determine suitable areas of habitat, reclassification matrices are created to assign 1's to areas within the suitable temperature and depth ranges for Oysters. Areas without suitable depth and temperature ranges get assigned a 0. The CRS, extent, and resolution of the reclassified depth raster are updated to match the reclassified temperature raster. The updated depth and temperature rasters are multiplied together to determine which areas are suitable in both temperature and depth requirements. Any cell with a 1 in both temperature and depth will remain 1, while any cell without suitable depth or temperature ranges, or both, will be 0.
 ```{r}
 # Reclassify temperature data
 rcl_temp <- matrix(c(-Inf, 11, 0,
@@ -113,20 +113,20 @@ temp_depth <- c(temp_reclass, cropped_depth)
 
 
 ```{r}
+# Multiply temperature and depth rasters together
 ocean <- temp_reclass * cropped_depth
 ```
 
 ```{r}
+# Check new raster to make sure multiplcation worked
 ocean[[1]]
 ```
 
 
-# Mapping suitable habitat from combined raster
-Remove??
+# Mapping suitable habitat from multiplied rasters
 ```{r}
 # Looking at suitable habitat based on new raster
 tm_shape(ocean) +
-  tm_graticules() +
   tm_raster(col.scale = tm_scale(
     breaks = c(0,1,Inf),
     values = c("lightblue2", "black"),
@@ -134,11 +134,13 @@ tm_shape(ocean) +
     col.legend = tm_legend(
      title = "Suitable habitat",
      position = tm_pos_out("right", "center")
-    ))
+    )) +
+  tm_grid(alpha = 0.4)
 ```
-
-NEED TO REORDER THIS
+## Find suitable cells within raster
+In order to determine suitable habitat cells within each region of west coast EEZ's, the CRS of the eez data must be updated to match the ocean raster. An ocean raster mask based on the eez data is created to exclude any cells outside of the west coast EEZ's. The eez data is rasterized based on the ocean mask raster to use algebra on the data for finding the total number of suitable cells within each EEZ. The area of an individual cell is calculated and multiplied with the number of cells to determine the area of suitable habitat in each EEZ. The suitable habitat areas are then joined with the eez data map the total area of suitable habitat per region. 
 ```{r}
+# Update CRS eez to match ocean CRS
 if (crs(eez) == crs(ocean)){
   print("Projections match!")
 }else {
@@ -146,85 +148,55 @@ if (crs(eez) == crs(ocean)){
   warning("Updating eez CRS")
 }
 
+# Create mask based on eez values
 ocean_mask <- mask(ocean, eez)
-```
 
-```{r}
-tm_shape(ocean_mask) +
-  tm_raster()
-```
-
-
-```{r}
 eez_raster <- rasterize(eez, ocean_mask,
                         field = "rgn")
-
-
-
-suitable_area <- expanse(ocean_mask, unit = "km", byValue = TRUE, zones = eez_raster)
-
-clean_suitable_area <- suitable_area %>% 
-  filter(value == 1) %>%
-  select(-layer, -value) %>% 
-  rename(rgn = zone)
-
-
-clean_suitable_area %>% 
-  arrange(desc(area)) %>%
-  kable(col.names = c("Region", "Area of Suitable Habitat")) %>%
-  kable_styling(bootstrap_options = "striped", full_width = FALSE)
-
 ```
-```{r}
-suitable_regions <- zonal(ocean_mask, eez_raster, fun = "sum", na.rm = TRUE)
 
-suitable_regions %>% 
+```{r}
+suitable_cells <- zonal(ocean_mask, eez_raster, fun = "sum", na.rm = TRUE)
+
+suitable_cells %>% 
   kable(col.names = c("Region", "Number of cells with suitable habitat")) %>%
   kable_styling(bootstrap_options = "striped", full_width = FALSE)
-
-suitable_cells <- suitable_regions %>% 
-  mutate(cell_area = cell_area$area,
-         suitable_habitat = mean * cell_area) %>% 
-  select(-cell_area)
-
-
 ```
 
-
 ```{r}
+# Find the area of individual cell
 cell_area <- cellSize(ocean_mask, unit="km")[1]
-```
 
-```{r}
-suitable_cell_area <- suitable_cells %>% 
+# Calculate total area of suitable habitat per region
+suitable_cell_area <- suitable_cells %>%
+  rename(cells = mean) %>%
   mutate(cell_area = cell_area$area,
-         suitable_habitat = mean * cell_area) %>% 
+        suitable_habitat = cells * cell_area) %>% 
   select(-cell_area)
 
+# Table with calculated cells and area per region
 suitable_cell_area %>% 
-  arrange(desc(mean)) %>% 
+  arrange(desc(cells)) %>% 
   kable(col.names = c("Region", "Number of cells with suitable habitat", "Area of suitable habitat")) %>%
   kable_styling(bootstrap_options = "striped", full_width = FALSE)
 ```
 
 ```{r}
-suitable_habitat <- left_join(eez, clean_suitable_area, by = "rgn")
-
+# Join suitable area with west coast eez data
+suitable_habitat <- left_join(eez, suitable_cell_area, by = "rgn")
 ```
 
-
-
-## Must customize this plot...
-change colors... look into depth base plot
+# Map suitable area by west coast EEZ's
 ```{r}
+# Map the results
 tm_shape(ocean) +                                      
   tm_raster(col.legend = tm_legend(show = FALSE)) +
 tm_shape(suitable_habitat) +
-  tm_polygons(fill = "area", 
+  tm_polygons(fill = "suitable_habitat", 
               fill.scale = tm_scale(values =  "viridis"),
                                     #breaks = c(0,200,1000,2500,3000, Inf)),
               fill.legend = tm_legend(title  = "Suitable habitat (sq km)")) + 
-  tm_text(text = "rgn",
+  tm_text(text = "rgn", # Add labels for each region
           col = "white",
           size = 0.35,
           xmod = 4,
@@ -264,34 +236,40 @@ aquaculture_zones <- function(species, min_depth, max_depth, min_temp, max_temp)
   # Match extents of depth and temp rasters
   cropped_depth <- crop(depth_resample, temp_reclass)
 
-  # Stack temperature and depth rasters
-  #temp_depth <- c(temp_reclass, cropped_depth)
-  
+  # Create raster denoting suitable depth AND temperature ranges
   ocean <- cropped_depth * temp_reclass
   
+  # Change EEZ CRS
   st_crs(eez) <- crs(ocean)
   
+  # Mask ocean data outside of EEZ regions
   ocean_mask <- mask(ocean, eez)
 
+  # Rasterize eez data based on ocean mask
   eez_raster <- rasterize(eez, ocean_mask,
                           field = "rgn")
 
+  # Add up number of suitable cells per region
+  suitable_cells <- zonal(ocean_mask, eez_raster, fun = "sum", na.rm = TRUE)
 
+  # Determine cell size
+  cell_area <- cellSize(ocean_mask, unit="km")[1]
 
-  suitable_area <- expanse(ocean_mask, unit = "km", byValue = TRUE, zones = eez_raster)
-
-  clean_suitable_area <- suitable_area %>% 
-    filter(value == 1) %>%
-    select(-layer, -value) %>% 
-    rename(rgn = zone)
+  # Calulcate area of suiable habitat based on number of suitable cells and cell size
+  suitable_cell_area <- suitable_cells %>%
+    rename(cells = depth) %>%
+    mutate(cell_area = cell_area$area,
+          suitable_habitat = cells * cell_area) %>% 
+    select(-cell_area)
   
+  # Join EEZ regions and suitable area
+  suitable_habitat <- left_join(eez, suitable_cell_area, by = "rgn")
   
-  suitable_habitat <- left_join(eez, clean_suitable_area, by = "rgn")
-  
+  # Create map
   tm_shape(ocean) +                                      
     tm_raster(col.legend = tm_legend(show = FALSE)) +
     tm_shape(suitable_habitat) +
-    tm_polygons(fill = "area", 
+    tm_polygons(fill = "suitable_habitat", 
                 fill.scale = tm_scale(values =  "viridis"),
                                     #breaks = c(0,200,1000,2500,3000, Inf)),
                 fill.legend = tm_legend(title  = "Suitable habitat (sq km)")) + 
@@ -303,18 +281,18 @@ aquaculture_zones <- function(species, min_depth, max_depth, min_temp, max_temp)
             bgcol = "black",
             bgcol_alpha = 0.75)+
     tm_grid(alpha = 0.5) +
-    tm_title(paste("Suitable Aquaculture Zones for ", species))
-
+    tm_title(paste("Suitable Aquaculture Zones for", species))
 }
-
-aquaculture_zones(species = "oysters", min_depth = -70, max_depth = 0, min_temp =  11, max_temp = 35)
+# Test function with Oysters
+aquaculture_zones(species = "Oysters", min_depth = -70, max_depth = 0, min_temp =  11, max_temp = 35)
 ```
 
-
-Using the function to find suitable aquaculture zones for Red Abalone
-
-Depth range 0-24 m
-Temperature range 8-18 C
+# Use function for new specis of interest
+Red Abalone were previously a popular fishery across the west coast, however the fishery closed in 2018 due to declining populations. The only source of Red Abalone on the west coast is currently through aquaculture. Because this species was a popular fishery and still has demand across the west coast, utilizing aquaculture zones along the coast would increase supply for this sought after mollusk. The depth range for Red Abalone is 0-24m and the temperature range is 8-18 ºC.
 ```{r}
 aquaculture_zones(species = "Red Abalone", min_depth = -24, max_depth = 0, min_temp =  8, max_temp = 18)
 ```
+These results raise a few flags, because the Washington region has the most suitable habitat, however red Abalone are not native to that
+
+
+
