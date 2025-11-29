@@ -292,7 +292,6 @@ Red Abalone were previously a popular fishery across the west coast, however the
 ```{r}
 aquaculture_zones(species = "Red Abalone", min_depth = -24, max_depth = 0, min_temp =  8, max_temp = 18)
 ```
-These results raise a few flags, because the Washington region has the most suitable habitat, however red Abalone are not native to that
 
 
 
