@@ -2,17 +2,13 @@
 title: "Determing Aquaculture Habitat on the West Coast"
 author: "Kylie Newcomer"
 date: 12/06/2025
-execute: 
-  warning: false
-  message: false
-bibliography: references.bib
 ---
 
 ![Photo from the Choptank Oyster Company](images/oyst.jpeg){fig-align="center" width="600" height="400"}
 
 # Background
 
-Marine aquaculture is a growing source of food in many areas around the world, yet remains wildly under-utilized in the United States. The U.S. imports between 70% and 85% of its seafood, with more than half of that comes from aquaculture[^1]. By increasing production of aquaculture in the U.S., we can find economic benefit and meet growing seafood demands. It has the capability of producing more sustainable protein options than land-based meat[^2]. A study by [Gentry et al.](https://www.nature.com/articles/s41559-017-0257-9) mapped the potential for marine aquaculture globally based on multiple constraints, including ship traffic, dissolved oxygen, and bottom depth. They found that global seafood demand could be met using less than 0.015% of the global ocean area[^3]
+Marine aquaculture is a growing source of food in many areas around the world, yet remains wildly under-utilized in the United States. The U.S. imports between 70% and 85% of its seafood, with more than half of that comes from aquaculture[^1]. By increasing production of aquaculture in the U.S., we can find economic benefit and meet growing seafood demands. It has the capability of producing more sustainable protein options than land-based meat[^2]. A study by [Gentry et al.](https://www.nature.com/articles/s41559-017-0257-9) mapped the potential for marine aquaculture globally based on multiple constraints, including ship traffic, dissolved oxygen, and bottom depth. They found that global seafood demand could be met using less than 0.015% of the global ocean area[^3].
 
 [^1]: National Oceanic and Atmospheric Administration. (2022). U.S. Aquaculture. NOAA Fisheries. https://www.fisheries.noaa.gov/national/aquaculture/us-aquaculture. \[Accessed Dec. 6, 2025\]
 
