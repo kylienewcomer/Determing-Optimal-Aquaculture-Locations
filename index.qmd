@@ -2,6 +2,8 @@
 title: "Determing Aquaculture Habitat on the West Coast"
 author: "Kylie Newcomer"
 date: 12/06/2025
+execute: 
+  freeze: true
 ---
 
 ![Photo from the Choptank Oyster Company](images/oyst.jpeg){fig-align="center" width="600" height="400"}
